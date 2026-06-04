@@ -1,8 +1,8 @@
 """
 Extracts participant picks from all submission spreadsheets in the submissions/
-folder and writes a Scoring tab to WC2026_Pool.xlsx.
+folder and writes a Picks tab to WC2026_Pool.xlsx.
 
-Scoring tab layout:
+Picks tab layout:
   Row 1: Title
   Row 2: Column headers — Participant | T1 P1 | T1 P2 | ... | T6 P2 | TOTAL PTS
   Row 3+: One row per participant with their team picks and a blank Total column
@@ -18,7 +18,7 @@ from openpyxl.utils import get_column_letter
 
 SUBMISSIONS_DIR = "submissions"
 MASTER_FILE = "WC2026_Pool.xlsx"
-SCORING_SHEET = "Scoring"
+PICKS_SHEET = "Picks"
 
 TIERS = ["Tier 1", "Tier 2", "Tier 3", "Tier 4", "Tier 5", "Tier 6"]
 TIER_LABELS = {
@@ -90,11 +90,12 @@ def build_scoring_sheet():
 
     wb = openpyxl.load_workbook(MASTER_FILE)
 
-    # Remove existing Scoring sheet so we can rebuild cleanly
-    if SCORING_SHEET in wb.sheetnames:
-        del wb[SCORING_SHEET]
+    # Remove old or existing sheet so we can rebuild cleanly
+    for old_name in ("Scoring", PICKS_SHEET):
+        if old_name in wb.sheetnames:
+            del wb[old_name]
 
-    ws = wb.create_sheet(SCORING_SHEET)
+    ws = wb.create_sheet(PICKS_SHEET)
 
     # ── Styles ──────────────────────────────────────────────────────────────
     header_fill = PatternFill("solid", fgColor="1F4E79")   # dark blue
@@ -188,7 +189,7 @@ def build_scoring_sheet():
     ws.freeze_panes = "B3"
 
     wb.save(MASTER_FILE)
-    print(f"\nDone. Scoring tab written to {MASTER_FILE} with {len(participants)} participant(s).")
+    print(f"\nDone. Picks tab written to {MASTER_FILE} with {len(participants)} participant(s).")
     print("Participants added:")
     for name, picks in participants:
         all_picks = [p for tier in TIERS for p in picks[tier] if p]

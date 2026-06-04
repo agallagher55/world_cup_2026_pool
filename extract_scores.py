@@ -15,9 +15,9 @@ Usage:
 What this script does:
   1. Pulls all WC2026 match results from the API (or mock data).
   2. Writes / refreshes a "Match Results" sheet in WC2026_Pool.xlsx.
-  3. Reads participant picks from the "Scoring" sheet (built by extract_picks.py).
+  3. Reads participant picks from the "Picks" sheet (built by extract_picks.py).
   4. Calculates points per the Scoring Rules sheet and writes totals back to
-     the "Scoring" sheet's TOTAL PTS column.
+     the "Picks" sheet's TOTAL PTS column.
 
 Scoring rules applied:
   Group stage:
@@ -370,11 +370,11 @@ def score_participants(picks_by_participant: dict, team_stats: dict) -> dict:
 # ── Spreadsheet I/O ────────────────────────────────────────────────────────────
 
 def read_participant_picks() -> dict[str, list[str]]:
-    """Read the Scoring sheet and return {participant: [team, ...]}."""
+    """Read the Picks sheet and return {participant: [team, ...]}."""
     wb = openpyxl.load_workbook(MASTER_FILE)
-    if "Scoring" not in wb.sheetnames:
-        sys.exit("No 'Scoring' sheet found — run extract_picks.py first.")
-    ws = wb["Scoring"]
+    if "Picks" not in wb.sheetnames:
+        sys.exit("No 'Picks' sheet found — run extract_picks.py first.")
+    ws = wb["Picks"]
 
     participants = {}
     for row in ws.iter_rows(min_row=3, values_only=True):
@@ -445,8 +445,8 @@ def write_match_results_sheet(wb: openpyxl.Workbook, matches: list[dict]):
 
 
 def write_scores_to_scoring_sheet(wb: openpyxl.Workbook, totals: dict[str, int]):
-    """Update TOTAL PTS column in the Scoring sheet."""
-    ws = wb["Scoring"]
+    """Update TOTAL PTS column in the Picks sheet."""
+    ws = wb["Picks"]
     # Find TOTAL PTS column (last data column)
     total_col = None
     for cell in ws[2]:
@@ -454,7 +454,7 @@ def write_scores_to_scoring_sheet(wb: openpyxl.Workbook, totals: dict[str, int])
             total_col = cell.column
             break
     if not total_col:
-        print("  WARNING: could not find TOTAL PTS column in Scoring sheet.")
+        print("  WARNING: could not find TOTAL PTS column in Picks sheet.")
         return
 
     yellow_fill = PatternFill("solid", fgColor="FFF2CC")
@@ -559,7 +559,7 @@ def main():
         print("Applying group-stage bonuses...")
         team_stats = apply_group_bonuses(team_stats)
 
-    print("Reading participant picks from Scoring sheet...")
+    print("Reading participant picks from Picks sheet...")
     picks = read_participant_picks()
     if not picks:
         sys.exit("No participant picks found — run extract_picks.py first.")
@@ -582,7 +582,7 @@ def main():
     write_scores_to_scoring_sheet(wb, totals)
     write_team_stats_sheet(wb, team_stats)
     wb.save(MASTER_FILE)
-    print("Done. Sheets updated: Match Results, Scoring (TOTAL PTS), Team Stats.")
+    print("Done. Sheets updated: Match Results, Picks (TOTAL PTS), Team Stats.")
 
 
 if __name__ == "__main__":
