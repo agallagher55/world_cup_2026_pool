@@ -74,7 +74,7 @@ def extract_picks(filepath):
     return participant, picks
 
 
-def build_scoring_sheet():
+def build_picks_sheet():
     participants = []
 
     submission_files = [os.path.join(SUBMISSIONS_DIR, x) for x in os.listdir(SUBMISSIONS_DIR) if x.endswith(".xlsx")]
@@ -202,4 +202,4 @@ def build_scoring_sheet():
 
 
 if __name__ == "__main__":
-    build_scoring_sheet()
+    build_picks_sheet()
