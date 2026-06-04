@@ -12,8 +12,11 @@ import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-SUBMISSIONS_DIR = "submissions"
-MASTER_FILE = "WC2026_Pool.xlsx"
+PROJECT_FOLDER = os.path.dirname(os.getcwd())
+
+SUBMISSIONS_DIR = os.path.join(PROJECT_FOLDER, "submissions")
+MASTER_FILE = os.path.join(PROJECT_FOLDER, "WC2026_Pool.xlsx")
+
 STATS_SHEET = "Statistics"
 
 TIERS = ["Tier 1", "Tier 2", "Tier 3", "Tier 4", "Tier 5", "Tier 6"]
