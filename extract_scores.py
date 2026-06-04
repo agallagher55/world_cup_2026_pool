@@ -53,7 +53,10 @@ except ImportError:
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MASTER_FILE = "WC2026_Pool.xlsx"
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Works whether the script lives at the project root or in a scripts/ subfolder
+_PROJECT_FOLDER = _SCRIPT_DIR if os.path.isfile(os.path.join(_SCRIPT_DIR, "WC2026_Pool.xlsx")) else os.path.dirname(_SCRIPT_DIR)
+MASTER_FILE = os.path.join(_PROJECT_FOLDER, "WC2026_Pool.xlsx")
 API_BASE = "https://api.football-data.org/v4"
 WC_CODE = "WC"  # competition code for FIFA World Cup
 
