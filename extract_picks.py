@@ -13,12 +13,16 @@ Run again at any time to refresh picks from the submissions folder.
 import os
 import glob
 import openpyxl
+
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-SUBMISSIONS_DIR = "submissions"
-MASTER_FILE = "WC2026_Pool.xlsx"
-PICKS_SHEET = "Picks"
+PROJECT_FOLDER = os.path.dirname(os.getcwd())
+
+SUBMISSIONS_DIR = os.path.join(PROJECT_FOLDER, "submissions")
+MASTER_FILE = os.path.join(PROJECT_FOLDER, "WC2026_Pool.xlsx")
+
+SCORING_SHEET = "Scoring"
 
 TIERS = ["Tier 1", "Tier 2", "Tier 3", "Tier 4", "Tier 5", "Tier 6"]
 TIER_LABELS = {
@@ -73,7 +77,8 @@ def extract_picks(filepath):
 def build_scoring_sheet():
     participants = []
 
-    submission_files = sorted(glob.glob(os.path.join(SUBMISSIONS_DIR, "*.xlsx")))
+    submission_files = [os.path.join(SUBMISSIONS_DIR, x) for x in os.listdir(SUBMISSIONS_DIR) if x.endswith(".xlsx")]
+
     if not submission_files:
         print(f"No .xlsx files found in {SUBMISSIONS_DIR}/")
         return
