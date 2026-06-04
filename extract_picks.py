@@ -17,12 +17,13 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-PROJECT_FOLDER = os.path.dirname(os.getcwd())
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Works whether the script lives at the project root or in a scripts/ subfolder
+PROJECT_FOLDER = _SCRIPT_DIR if os.path.isdir(os.path.join(_SCRIPT_DIR, "submissions")) else os.path.dirname(_SCRIPT_DIR)
 
 SUBMISSIONS_DIR = os.path.join(PROJECT_FOLDER, "submissions")
 MASTER_FILE = os.path.join(PROJECT_FOLDER, "WC2026_Pool.xlsx")
-
-SCORING_SHEET = "Scoring"
+PICKS_SHEET = "Picks"
 
 TIERS = ["Tier 1", "Tier 2", "Tier 3", "Tier 4", "Tier 5", "Tier 6"]
 TIER_LABELS = {
@@ -74,7 +75,7 @@ def extract_picks(filepath):
     return participant, picks
 
 
-def build_scoring_sheet():
+def build_picks_sheet():
     participants = []
 
     submission_files = [os.path.join(SUBMISSIONS_DIR, x) for x in os.listdir(SUBMISSIONS_DIR) if x.endswith(".xlsx")]
@@ -202,4 +203,4 @@ def build_scoring_sheet():
 
 
 if __name__ == "__main__":
-    build_scoring_sheet()
+    build_picks_sheet()
