@@ -4,17 +4,16 @@ to WC2026_Pool.xlsx.
 
 Sections in the Statistics tab:
   1. Team pick counts — every team, grouped by tier, sorted by pick popularity
-  2. Pool Analysis:
-       a. Consensus lineup — most average picks (top pick(s) per tier)
-       b. Most mainstream — participant whose picks most resemble the popular consensus
-       c. Most contrarian  — participant whose picks most resemble the least popular choices
-       d. Uniqueness scores — per-participant metric of pick rarity
+  2. Pool Analysis — consensus lineup, participant metrics
+  3. Awards & Badges — fun per-participant and per-pair awards
 
 Run: python statistics.py
 """
 
 import glob
 import os
+from collections import Counter
+from itertools import combinations
 
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -179,6 +178,150 @@ def contrarian_overlap(picks: list[str], least_pop: set[str]) -> int:
     return sum(1 for team in picks if team in least_pop)
 
 
+def build_group_map(teams: list[tuple[str, str, str]]) -> dict[str, str]:
+    """Return {team: wc_group} for all teams."""
+    return {team: group for _, team, group in teams}
+
+
+def exclusive_picks(picks: list[str], count_map: dict[str, int]) -> list[str]:
+    """Teams in picks that no one else chose (count == 1)."""
+    return [team for team in picks if count_map.get(team, 0) == 1]
+
+
+def group_diversity(picks: list[str], group_map: dict[str, str]) -> int:
+    """Count of unique WC groups represented across picks."""
+    return len({group_map[t] for t in picks if t in group_map})
+
+
+def group_concentration(picks: list[str], group_map: dict[str, str]) -> tuple[int, str, list[str]]:
+    """
+    Return (max_count, group_name, teams_from_that_group) for the WC group
+    most represented in picks. Highest count = most concentrated / risky.
+    """
+    counts = Counter(group_map[t] for t in picks if t in group_map)
+    if not counts:
+        return 0, "", []
+    top_group, top_count = counts.most_common(1)[0]
+    teams = [t for t in picks if group_map.get(t) == top_group]
+    return top_count, top_group, teams
+
+
+def pairwise_similarity(participants: dict[str, list[str]]) -> list[tuple[str, str, int, float]]:
+    """
+    Jaccard similarity for every pair of participants.
+    Returns [(name_a, name_b, shared_count, jaccard), ...] sorted descending by jaccard.
+    """
+    results = []
+    for (a, picks_a), (b, picks_b) in combinations(participants.items(), 2):
+        set_a, set_b = set(picks_a), set(picks_b)
+        shared = len(set_a & set_b)
+        union = len(set_a | set_b)
+        results.append((a, b, shared, shared / union if union else 0.0))
+    results.sort(key=lambda x: -x[3])
+    return results
+
+
+def compute_badges(
+    participants: dict[str, list[str]],
+    rows: list[dict],
+    teams: list[tuple[str, str, str]],
+) -> list[dict]:
+    """
+    Compute all badge winners. Returns a list of badge dicts ready for rendering.
+    Each dict: name, icon, description, winners, stat, bg (hex), fg (hex).
+    """
+    count_map = build_pick_count_map(rows)
+    group_map = build_group_map(teams)
+    total = len(participants)
+
+    metrics = {
+        name: {
+            "popularity":    popularity_score(picks, count_map),
+            "uniqueness":    uniqueness_score(picks, count_map, total),
+            "exclusive":     exclusive_picks(picks, count_map),
+            "diversity":     group_diversity(picks, group_map),
+            "concentration": group_concentration(picks, group_map),
+        }
+        for name, picks in participants.items()
+    }
+
+    def winners_of(key, best=max):
+        target = best(m[key] for m in metrics.values())
+        return [n for n, m in metrics.items() if m[key] == target], target
+
+    badges = []
+
+    # ── Crowd Favourite ───────────────────────────────────────────────────────
+    w, val = winners_of("popularity", best=max)
+    badges.append({
+        "icon": "⭐", "name": "Crowd Favourite",
+        "description": "Most mainstream picks — highest overlap with the popular consensus",
+        "winners": w, "stat": f"Popularity score: {val}",
+        "bg": "FFF2CC", "fg": "7F6000",
+    })
+
+    # ── Dark Horse ───────────────────────────────────────────────────────────
+    max_u = max(m["uniqueness"] for m in metrics.values())
+    dark_w = [n for n, m in metrics.items() if abs(m["uniqueness"] - max_u) < 0.01]
+    badges.append({
+        "icon": "🎯", "name": "Dark Horse",
+        "description": "Most contrarian picks — highest uniqueness score",
+        "winners": dark_w, "stat": f"Uniqueness: {max_u:.1f}%",
+        "bg": "EAD1DC", "fg": "4A235A",
+    })
+
+    # ── Lone Wolf ────────────────────────────────────────────────────────────
+    max_excl = max((len(m["exclusive"]) for m in metrics.values()), default=0)
+    wolf_w = [n for n, m in metrics.items() if len(m["exclusive"]) == max_excl]
+    wolf_teams = {t for n in wolf_w for t in metrics[n]["exclusive"]}
+    badges.append({
+        "icon": "🐺", "name": "Lone Wolf",
+        "description": "Most picks that nobody else made",
+        "winners": wolf_w if max_excl > 0 else [],
+        "stat": (f"{max_excl} exclusive pick(s): {', '.join(sorted(wolf_teams))}"
+                 if max_excl > 0 else "No exclusive picks in the pool"),
+        "bg": "D0E0E3", "fg": "0C343D",
+    })
+
+    # ── Globetrotter ─────────────────────────────────────────────────────────
+    max_div = max(m["diversity"] for m in metrics.values())
+    globe_w = [n for n, m in metrics.items() if m["diversity"] == max_div]
+    badges.append({
+        "icon": "🌍", "name": "Globetrotter",
+        "description": "Picks span the most different WC groups",
+        "winners": globe_w, "stat": f"{max_div} different WC groups covered",
+        "bg": "D9EAD3", "fg": "274E13",
+    })
+
+    # ── Group Gambler ─────────────────────────────────────────────────────────
+    max_conc = max(m["concentration"][0] for m in metrics.values())
+    gambler_w = [n for n, m in metrics.items() if m["concentration"][0] == max_conc]
+    gambler_groups = sorted({metrics[n]["concentration"][1] for n in gambler_w})
+    gambler_teams = sorted({t for n in gambler_w for t in metrics[n]["concentration"][2]})
+    badges.append({
+        "icon": "🎲", "name": "Group Gambler",
+        "description": "Most picks from the same WC group — highest concentration risk",
+        "winners": gambler_w,
+        "stat": f"{max_conc} picks from {' / '.join(gambler_groups)}: {', '.join(gambler_teams)}",
+        "bg": "FCE5CD", "fg": "7F2B00",
+    })
+
+    # ── Twins ────────────────────────────────────────────────────────────────
+    pairs = pairwise_similarity(participants)
+    if pairs:
+        a, b, shared, jaccard = pairs[0]
+        shared_teams = sorted(set(participants[a]) & set(participants[b]))
+        badges.append({
+            "icon": "🤝", "name": "Twins",
+            "description": "The pair of participants with the most picks in common",
+            "winners": [f"{a} & {b}"],
+            "stat": f"{shared} shared picks ({jaccard:.0%} similarity): {', '.join(shared_teams)}",
+            "bg": "CFE2F3", "fg": "1C4587",
+        })
+
+    return badges
+
+
 # ── Spreadsheet helpers ───────────────────────────────────────────────────────
 
 def _lighten(hex_color: str, factor: float = 0.82) -> str:
@@ -220,9 +363,70 @@ def _blank_row(ws, row: int, n_cols: int):
     return row + 1
 
 
+def write_badges_section(ws, data_row: int, badges: list[dict], N_COLS: int) -> int:
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    left = Alignment(horizontal="left", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+
+    data_row = _blank_row(ws, data_row, N_COLS)
+    data_row = _section_header(ws, data_row, "  AWARDS & BADGES", N_COLS, fill_color="BF9000")
+
+    # Column headers
+    data_row = _col_header_row(
+        ws, data_row,
+        ["Badge", "What it means", "", "Winner(s)", "", "Earning stat"],
+        fill_color="BF9000",
+    )
+
+    for badge in badges:
+        fill = PatternFill("solid", fgColor=badge["bg"])
+        name_font = Font(bold=True, color=badge["fg"])
+        stat_font = Font(italic=True, color=badge["fg"])
+        winner_font = Font(bold=True, color=badge["fg"])
+        desc_font = Font(italic=True, color="595959", size=9)
+
+        # Col A: icon + badge name
+        ws.cell(row=data_row, column=1,
+                value=f"{badge['icon']}  {badge['name']}").font = name_font
+        ws.cell(row=data_row, column=1).fill = fill
+        ws.cell(row=data_row, column=1).alignment = left
+        ws.cell(row=data_row, column=1).border = border
+
+        # Col B-C: description
+        ws.merge_cells(f"B{data_row}:C{data_row}")
+        cell = ws.cell(row=data_row, column=2, value=badge["description"])
+        cell.font = desc_font
+        cell.fill = fill
+        cell.alignment = left
+        cell.border = border
+
+        # Col D-E: winner(s)
+        ws.merge_cells(f"D{data_row}:E{data_row}")
+        winners_str = "  /  ".join(badge["winners"]) if badge["winners"] else "—"
+        cell = ws.cell(row=data_row, column=4, value=winners_str)
+        cell.font = winner_font
+        cell.fill = fill
+        cell.alignment = left
+        cell.border = border
+
+        # Col F: stat
+        cell = ws.cell(row=data_row, column=6, value=badge["stat"])
+        cell.font = stat_font
+        cell.fill = fill
+        cell.alignment = left
+        cell.border = border
+
+        ws.row_dimensions[data_row].height = 22
+        data_row += 1
+
+    return data_row
+
+
 def write_statistics_sheet(
     rows: list[dict],
     participants: dict[str, list[str]],
+    teams: list[tuple[str, str, str]],
 ):
     total = len(participants)
     wb = openpyxl.load_workbook(MASTER_FILE)
@@ -312,10 +516,10 @@ def write_statistics_sheet(
         fill_color="4472C4",
     )
     for tier in TIERS:
-        teams = consensus.get(tier, [])
-        team_str = "  /  ".join(teams) if teams else "—  (no picks)"
-        count_val = count_map.get(teams[0], 0) if teams else 0
-        pct_val = f"{count_val / total * 100:.0f}%" if total and teams else "—"
+        con_teams = consensus.get(tier, [])
+        team_str = "  /  ".join(con_teams) if con_teams else "—  (no picks)"
+        count_val = count_map.get(con_teams[0], 0) if con_teams else 0
+        pct_val = f"{count_val / total * 100:.0f}%" if total and con_teams else "—"
         fill = PatternFill("solid", fgColor="DCE6F1")
         vals = [tier, TIER_LABELS[tier], team_str, count_val or "", pct_val, ""]
         for col, val in enumerate(vals, 1):
@@ -323,7 +527,7 @@ def write_statistics_sheet(
             cell.fill = fill
             cell.border = border
             cell.alignment = center if col not in (2, 3) else left
-        if teams:
+        if con_teams:
             ws.cell(row=data_row, column=3).font = Font(bold=True)
         ws.row_dimensions[data_row].height = 16
         data_row += 1
@@ -467,14 +671,17 @@ def write_statistics_sheet(
         ws.row_dimensions[data_row].height = 18
         data_row += 1
 
+    # ── Section 3: Badges ─────────────────────────────────────────────────────
+    badges = compute_badges(participants, rows, teams)
+    data_row = write_badges_section(ws, data_row, badges, N_COLS)
+
     # ── Column widths ─────────────────────────────────────────────────────────
-    col_widths = [22, 12, 12, 50]
     ws.column_dimensions["A"].width = 22
-    ws.column_dimensions["B"].width = 12
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 14
-    ws.column_dimensions["E"].width = 14
-    ws.column_dimensions["F"].width = 36
+    ws.column_dimensions["B"].width = 28
+    ws.column_dimensions["C"].width = 5
+    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["E"].width = 5
+    ws.column_dimensions["F"].width = 52
 
     ws.freeze_panes = "A3"
     wb.save(MASTER_FILE)
@@ -500,7 +707,7 @@ def main():
     print(f"  {len(picked)} team(s) picked, {len(unpicked)} not picked.")
 
     print("Writing Statistics sheet...")
-    write_statistics_sheet(rows, participants)
+    write_statistics_sheet(rows, participants, teams)
     print(f"Done. '{STATS_SHEET}' tab written to {MASTER_FILE}.")
 
     # ── Console summary ───────────────────────────────────────────────────────
@@ -530,6 +737,12 @@ def main():
     contrarian = [a["name"] for a in analysis if a["popularity_score"] == min(a["popularity_score"] for a in analysis)]
     print(f"\n  Most mainstream : {' / '.join(mainstream)}")
     print(f"  Most contrarian : {' / '.join(contrarian)}")
+
+    print("\n── Badges ──")
+    badges = compute_badges(participants, rows, teams)
+    for b in badges:
+        w = " / ".join(b["winners"]) if b["winners"] else "—"
+        print(f"  {b['icon']} {b['name']:<20}  {w:<25}  {b['stat']}")
 
     print("\nPick counts by tier:")
     current_tier = None
