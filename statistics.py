@@ -61,31 +61,88 @@ def read_all_teams() -> list[tuple[str, str, str]]:
     return teams
 
 
+def _validate_submission(
+    filename: str,
+    name: str | None,
+    picks_by_tier: dict[str, list[str]],
+) -> list[str]:
+    """
+    Return a list of human-readable issue strings for a single submission.
+    Empty list means the submission is fully valid.
+    """
+    issues = []
+
+    if not name:
+        issues.append("Participant name is blank")
+        return issues  # can't say much more without a name
+
+    for tier in TIERS:
+        tier_picks = picks_by_tier.get(tier, [])
+        filled = [p for p in tier_picks if p]
+        n = len(filled)
+        if n == 0:
+            issues.append(f"{tier}: no picks entered")
+        elif n == 1:
+            issues.append(f"{tier}: only 1 pick entered ({filled[0]}), expected 2")
+        elif n > 2:
+            issues.append(f"{tier}: {n} picks found ({', '.join(filled)}), expected 2")
+
+    total = sum(len([p for p in v if p]) for v in picks_by_tier.values())
+    if total != 12:
+        issues.append(f"total picks: {total}/12")
+
+    return issues
+
+
 def read_all_picks() -> dict[str, list[str]]:
-    """Return {participant_name: [team, ...]} from every submission file."""
+    """Return {participant_name: [team, ...]} from every submission file.
+
+    Logs a validation warning for any submission that doesn't have exactly
+    12 picks (2 per tier × 6 tiers). Invalid submissions are still included
+    so they appear in statistics, but the organizer is alerted.
+    """
     participants: dict[str, list[str]] = {}
+    all_valid = True
+
     for filepath in sorted(glob.glob(os.path.join(SUBMISSIONS_DIR, "*.xlsx"))):
+        filename = os.path.basename(filepath)
         wb = openpyxl.load_workbook(filepath)
         if "User Submission Template" not in wb.sheetnames:
-            print(f"  WARNING: no 'User Submission Template' in {os.path.basename(filepath)}, skipping.")
+            print(f"  WARNING: no 'User Submission Template' in {filename}, skipping.")
             continue
         ws = wb["User Submission Template"]
 
         name = None
-        picks: list[str] = []
+        picks_by_tier: dict[str, list[str]] = {tier: [] for tier in TIERS}
+
         for row in ws.iter_rows(values_only=True):
             if row[0] and str(row[0]).strip() == "Participant Name:":
                 name = str(row[2]).strip() if row[2] else None
             tier_val = str(row[0]).strip() if row[0] else ""
             pick_num = str(row[2]).strip() if row[2] else ""
             team = str(row[3]).strip() if row[3] else ""
-            if tier_val in TIERS and pick_num in ("Pick 1", "Pick 2") and team:
-                picks.append(team)
+            if tier_val in TIERS and pick_num in ("Pick 1", "Pick 2"):
+                picks_by_tier[tier_val].append(team)  # keep blanks for validation
+
+        issues = _validate_submission(filename, name, picks_by_tier)
+        if issues:
+            all_valid = False
+            print(f"  INVALID submission — {filename} ({name or 'unknown'}):")
+            for issue in issues:
+                print(f"    ✗ {issue}")
+        else:
+            print(f"  OK  {filename} ({name}) — 12/12 picks valid")
 
         if name:
-            participants[name] = picks
+            flat_picks = [p for tier in TIERS for p in picks_by_tier[tier] if p]
+            participants[name] = flat_picks
         else:
-            print(f"  WARNING: participant name missing in {os.path.basename(filepath)}, skipping.")
+            print(f"  Skipping {filename}: no participant name found.")
+
+    if all_valid:
+        print("  All submissions passed validation.")
+    else:
+        print("  One or more submissions have issues — review warnings above.")
 
     return participants
 
