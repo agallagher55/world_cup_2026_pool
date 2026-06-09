@@ -10,6 +10,7 @@ Sections in the Statistics tab:
 Run: python statistics.py
 """
 
+import difflib
 import glob
 import os
 from collections import Counter
@@ -61,8 +62,26 @@ def read_all_teams() -> list[tuple[str, str, str]]:
     return teams
 
 
-def read_all_picks() -> dict[str, list[str]]:
-    """Return {participant_name: [team, ...]} from every submission file."""
+def _valid_team_names(teams: list[tuple[str, str, str]]) -> set[str]:
+    return {team for _, team, _ in teams}
+
+
+def _check_team(team: str, valid: set[str], participant: str, tier: str, pick_num: str):
+    """Warn if team name is not in the master list, with a spelling suggestion."""
+    if team in valid:
+        return
+    suggestions = difflib.get_close_matches(team, valid, n=1, cutoff=0.6)
+    hint = f" — did you mean '{suggestions[0]}'?" if suggestions else ""
+    print(f"  INVALID TEAM [{participant}] {tier} {pick_num}: '{team}'{hint}")
+
+
+def read_all_picks(teams: list[tuple[str, str, str]] | None = None) -> dict[str, list[str]]:
+    """Return {participant_name: [team, ...]} from every submission file.
+
+    If teams is provided, each pick is validated against the master team list
+    and a warning (with closest-match suggestion) is printed for any mismatch.
+    """
+    valid: set[str] = _valid_team_names(teams) if teams else set()
     participants: dict[str, list[str]] = {}
     for filepath in sorted(glob.glob(os.path.join(SUBMISSIONS_DIR, "*.xlsx"))):
         wb = openpyxl.load_workbook(filepath)
@@ -80,6 +99,8 @@ def read_all_picks() -> dict[str, list[str]]:
             pick_num = str(row[2]).strip() if row[2] else ""
             team = str(row[3]).strip() if row[3] else ""
             if tier_val in TIERS and pick_num in ("Pick 1", "Pick 2") and team:
+                if valid:
+                    _check_team(team, valid, name or os.path.basename(filepath), tier_val, pick_num)
                 picks.append(team)
 
         if name:
@@ -695,7 +716,7 @@ def main():
     print(f"  {len(teams)} teams found.")
 
     print("Reading participant picks from submissions/...")
-    participants = read_all_picks()
+    participants = read_all_picks(teams)
     print(f"  {len(participants)} participant(s): {', '.join(participants)}")
 
     print("Building pick counts...")
