@@ -367,13 +367,18 @@ def compute_badges(
     # ── Twins ────────────────────────────────────────────────────────────────
     pairs = pairwise_similarity(participants)
     if pairs:
-        a, b, shared, jaccard = pairs[0]
-        shared_teams = sorted(set(participants[a]) & set(participants[b]))
+        top_jaccard = pairs[0][3]
+        top_pairs = [(a, b, shared) for a, b, shared, j in pairs
+                     if abs(j - top_jaccard) < 0.001]
+        twin_winners = [f"{a} & {b}" for a, b, _ in top_pairs]
+        # stat uses the first pair's shared teams for brevity; all pairs have the same score
+        a0, b0, shared0 = top_pairs[0]
+        shared_teams = sorted(set(participants[a0]) & set(participants[b0]))
         badges.append({
             "icon": "🤝", "name": "Twins",
             "description": "The pair of participants with the most picks in common",
-            "winners": [f"{a} & {b}"],
-            "stat": f"{shared} shared picks ({jaccard:.0%} similarity): {', '.join(shared_teams)}",
+            "winners": twin_winners,
+            "stat": f"{shared0} shared picks ({top_jaccard:.0%} similarity): {', '.join(shared_teams)}",
             "bg": "CFE2F3", "fg": "1C4587",
         })
 
@@ -439,44 +444,54 @@ def write_badges_section(ws, data_row: int, badges: list[dict], N_COLS: int) -> 
 
     for badge in badges:
         fill = PatternFill("solid", fgColor=badge["bg"])
-        name_font = Font(bold=True, color=badge["fg"])
-        stat_font = Font(italic=True, color=badge["fg"])
+        name_font   = Font(bold=True, color=badge["fg"])
+        stat_font   = Font(italic=True, color=badge["fg"])
         winner_font = Font(bold=True, color=badge["fg"])
-        desc_font = Font(italic=True, color="595959", size=9)
+        desc_font   = Font(italic=True, color="595959", size=9)
+        tie_font    = Font(bold=True, italic=True, color=badge["fg"], size=9)
 
-        # Col A: icon + badge name
-        ws.cell(row=data_row, column=1,
-                value=f"{badge['icon']}  {badge['name']}").font = name_font
-        ws.cell(row=data_row, column=1).fill = fill
-        ws.cell(row=data_row, column=1).alignment = left
-        ws.cell(row=data_row, column=1).border = border
+        winners = badge["winners"] if badge["winners"] else ["—"]
+        tie = len(winners) > 1
 
-        # Col B-C: description
-        ws.merge_cells(f"B{data_row}:C{data_row}")
-        cell = ws.cell(row=data_row, column=2, value=badge["description"])
-        cell.font = desc_font
-        cell.fill = fill
-        cell.alignment = left
-        cell.border = border
+        for i, winner in enumerate(winners):
+            is_first = i == 0
 
-        # Col D-E: winner(s)
-        ws.merge_cells(f"D{data_row}:E{data_row}")
-        winners_str = "  /  ".join(badge["winners"]) if badge["winners"] else "—"
-        cell = ws.cell(row=data_row, column=4, value=winners_str)
-        cell.font = winner_font
-        cell.fill = fill
-        cell.alignment = left
-        cell.border = border
+            # Col A: icon + badge name (first row only; blank continuation rows)
+            cell = ws.cell(row=data_row, column=1,
+                           value=f"{badge['icon']}  {badge['name']}" if is_first else "")
+            cell.font      = name_font
+            cell.fill      = fill
+            cell.alignment = left
+            cell.border    = border
 
-        # Col F: stat
-        cell = ws.cell(row=data_row, column=6, value=badge["stat"])
-        cell.font = stat_font
-        cell.fill = fill
-        cell.alignment = left
-        cell.border = border
+            # Col B-C: description (first row only)
+            ws.merge_cells(f"B{data_row}:C{data_row}")
+            cell = ws.cell(row=data_row, column=2,
+                           value=badge["description"] if is_first else "")
+            cell.font      = desc_font
+            cell.fill      = fill
+            cell.alignment = left
+            cell.border    = border
 
-        ws.row_dimensions[data_row].height = 22
-        data_row += 1
+            # Col D-E: one winner per row; prefix tie rows with "🤝 (tied)"
+            ws.merge_cells(f"D{data_row}:E{data_row}")
+            label = f"🏆 (tied)  {winner}" if tie else winner
+            cell  = ws.cell(row=data_row, column=4, value=label)
+            cell.font      = tie_font if tie else winner_font
+            cell.fill      = fill
+            cell.alignment = left
+            cell.border    = border
+
+            # Col F: stat (first row only)
+            cell = ws.cell(row=data_row, column=6,
+                           value=badge["stat"] if is_first else "")
+            cell.font      = stat_font
+            cell.fill      = fill
+            cell.alignment = left
+            cell.border    = border
+
+            ws.row_dimensions[data_row].height = 20
+            data_row += 1
 
     return data_row
 
