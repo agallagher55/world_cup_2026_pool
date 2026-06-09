@@ -12,6 +12,7 @@ Run again at any time to refresh picks from the submissions folder.
 
 import os
 import glob
+import difflib
 import openpyxl
 
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -36,7 +37,29 @@ TIER_LABELS = {
 }
 
 
-def extract_picks(filepath):
+def load_valid_teams() -> set[str]:
+    """Return the set of valid team names from the 'Teams by Tier' sheet."""
+    wb = openpyxl.load_workbook(MASTER_FILE)
+    if "Teams by Tier" not in wb.sheetnames:
+        return set()
+    ws = wb["Teams by Tier"]
+    valid = set()
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        if row[1]:
+            valid.add(str(row[1]).strip())
+    return valid
+
+
+def _check_team(team: str, valid_teams: set[str], participant: str, tier: str, pick_num: str):
+    """Warn if team is not in the valid set, and suggest the closest match."""
+    if not valid_teams or team in valid_teams:
+        return
+    suggestions = difflib.get_close_matches(team, valid_teams, n=1, cutoff=0.6)
+    hint = f" — did you mean '{suggestions[0]}'?" if suggestions else ""
+    print(f"  INVALID TEAM in {participant} ({tier} {pick_num}): '{team}'{hint}")
+
+
+def extract_picks(filepath, valid_teams: set[str] | None = None):
     """Return (participant_name, picks_dict) from a submission file.
 
     picks_dict maps tier string -> [pick1, pick2]
@@ -71,6 +94,8 @@ def extract_picks(filepath):
         if tier_val in TIERS and pick_num in ("Pick 1", "Pick 2") and team:
             idx = 0 if pick_num == "Pick 1" else 1
             picks[tier_val][idx] = team
+            if valid_teams is not None:
+                _check_team(team, valid_teams, participant, tier_val, pick_num)
 
     return participant, picks
 
@@ -84,9 +109,11 @@ def build_picks_sheet():
         print(f"No .xlsx files found in {SUBMISSIONS_DIR}/")
         return
 
+    valid_teams = load_valid_teams()
+
     for filepath in submission_files:
         print(f"Reading {os.path.basename(filepath)}...")
-        name, picks = extract_picks(filepath)
+        name, picks = extract_picks(filepath, valid_teams)
         if name:
             participants.append((name, picks))
 
