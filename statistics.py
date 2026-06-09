@@ -10,6 +10,7 @@ Sections in the Statistics tab:
 Run: python statistics.py
 """
 
+import difflib
 import glob
 import os
 from collections import Counter
@@ -752,7 +753,7 @@ def main():
     print(f"  {len(teams)} teams found.")
 
     print("Reading participant picks from submissions/...")
-    participants = read_all_picks()
+    participants = read_all_picks(teams)
     print(f"  {len(participants)} participant(s): {', '.join(participants)}")
 
     print("Building pick counts...")
