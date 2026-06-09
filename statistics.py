@@ -47,6 +47,36 @@ TIER_COLORS = {
     "Tier 6": "595959",
 }
 
+# Confederation for every WC 2026 team.  Used for the continent-based badges.
+CONFEDERATION = {
+    # UEFA – Europe
+    "Spain": "Europe", "France": "Europe", "Germany": "Europe",
+    "Netherlands": "Europe", "Portugal": "Europe", "England": "Europe",
+    "Belgium": "Europe", "Croatia": "Europe", "Switzerland": "Europe",
+    "Turkey": "Europe", "Austria": "Europe", "Norway": "Europe",
+    "Sweden": "Europe", "Scotland": "Europe", "Bosnia & Herz.": "Europe",
+    "Czechia": "Europe",
+    # CONMEBOL – South America
+    "Brazil": "South America", "Argentina": "South America",
+    "Colombia": "South America", "Ecuador": "South America",
+    "Uruguay": "South America", "Paraguay": "South America",
+    # CONCACAF – North & Central America / Caribbean
+    "Mexico": "N. & C. America", "Canada": "N. & C. America",
+    "United States": "N. & C. America", "Haiti": "N. & C. America",
+    "Curaçao": "N. & C. America", "Panama": "N. & C. America",
+    # CAF – Africa
+    "Morocco": "Africa", "South Africa": "Africa", "Tunisia": "Africa",
+    "Ivory Coast": "Africa", "Egypt": "Africa", "Senegal": "Africa",
+    "Algeria": "Africa", "Ghana": "Africa", "Cape Verde": "Africa",
+    "DR Congo": "Africa",
+    # AFC + OFC – Asia & Oceania
+    "South Korea": "Asia & Oceania", "Qatar": "Asia & Oceania",
+    "Japan": "Asia & Oceania", "Australia": "Asia & Oceania",
+    "Saudi Arabia": "Asia & Oceania", "Iran": "Asia & Oceania",
+    "Iraq": "Asia & Oceania", "Jordan": "Asia & Oceania",
+    "Uzbekistan": "Asia & Oceania", "New Zealand": "Asia & Oceania",
+}
+
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
@@ -227,6 +257,21 @@ def group_concentration(picks: list[str], group_map: dict[str, str]) -> tuple[in
     return top_count, top_group, teams
 
 
+def confederation_diversity(picks: list[str]) -> int:
+    """Count of distinct confederations (continents) represented across picks."""
+    return len({CONFEDERATION[t] for t in picks if t in CONFEDERATION})
+
+
+def confederation_concentration(picks: list[str]) -> tuple[int, str, list[str]]:
+    """Return (max_count, confederation_name, teams) for the most-represented confederation."""
+    counts = Counter(CONFEDERATION[t] for t in picks if t in CONFEDERATION)
+    if not counts:
+        return 0, "", []
+    top_conf, top_count = counts.most_common(1)[0]
+    teams = [t for t in picks if CONFEDERATION.get(t) == top_conf]
+    return top_count, top_conf, teams
+
+
 def pairwise_similarity(participants: dict[str, list[str]]) -> list[tuple[str, str, int, float]]:
     """
     Jaccard similarity for every pair of participants.
@@ -257,11 +302,13 @@ def compute_badges(
 
     metrics = {
         name: {
-            "popularity":    popularity_score(picks, count_map),
-            "uniqueness":    uniqueness_score(picks, count_map, total),
-            "exclusive":     exclusive_picks(picks, count_map),
-            "diversity":     group_diversity(picks, group_map),
-            "concentration": group_concentration(picks, group_map),
+            "popularity":         popularity_score(picks, count_map),
+            "uniqueness":         uniqueness_score(picks, count_map, total),
+            "exclusive":          exclusive_picks(picks, count_map),
+            "diversity":          group_diversity(picks, group_map),
+            "concentration":      group_concentration(picks, group_map),
+            "conf_diversity":     confederation_diversity(picks),
+            "conf_concentration": confederation_concentration(picks),
         }
         for name, picks in participants.items()
     }
@@ -327,16 +374,43 @@ def compute_badges(
         "bg": "FCE5CD", "fg": "7F2B00",
     })
 
+    # ── Around the World ─────────────────────────────────────────────────────
+    max_conf_div = max(m["conf_diversity"] for m in metrics.values())
+    world_w = [n for n, m in metrics.items() if m["conf_diversity"] == max_conf_div]
+    badges.append({
+        "icon": "🌐", "name": "Around the World",
+        "description": "Picks span the most confederations/continents",
+        "winners": world_w, "stat": f"{max_conf_div} confederation(s) represented",
+        "bg": "D0E4F5", "fg": "0B3D6E",
+    })
+
+    # ── Continental Loyalist ──────────────────────────────────────────────────
+    max_conf_conc = max(m["conf_concentration"][0] for m in metrics.values())
+    loyal_w = [n for n, m in metrics.items() if m["conf_concentration"][0] == max_conf_conc]
+    loyal_confs  = sorted({metrics[n]["conf_concentration"][1] for n in loyal_w})
+    loyal_teams  = sorted({t for n in loyal_w for t in metrics[n]["conf_concentration"][2]})
+    badges.append({
+        "icon": "🗺️", "name": "Continental Loyalist",
+        "description": "Most picks concentrated in a single confederation/continent",
+        "winners": loyal_w,
+        "stat": f"{max_conf_conc} picks from {' / '.join(loyal_confs)}: {', '.join(loyal_teams)}",
+        "bg": "F4CCCC", "fg": "660000",
+    })
+
     # ── Twins ────────────────────────────────────────────────────────────────
     pairs = pairwise_similarity(participants)
     if pairs:
-        a, b, shared, jaccard = pairs[0]
-        shared_teams = sorted(set(participants[a]) & set(participants[b]))
+        top_jaccard = pairs[0][3]
+        top_pairs   = [(a, b, shared) for a, b, shared, j in pairs
+                       if abs(j - top_jaccard) < 0.001]
+        twin_winners = [f"{a} & {b}" for a, b, _ in top_pairs]
+        a0, b0, shared0 = top_pairs[0]
+        shared_teams = sorted(set(participants[a0]) & set(participants[b0]))
         badges.append({
             "icon": "🤝", "name": "Twins",
             "description": "The pair of participants with the most picks in common",
-            "winners": [f"{a} & {b}"],
-            "stat": f"{shared} shared picks ({jaccard:.0%} similarity): {', '.join(shared_teams)}",
+            "winners": twin_winners,
+            "stat": f"{shared0} shared picks ({top_jaccard:.0%} similarity): {', '.join(shared_teams)}",
             "bg": "CFE2F3", "fg": "1C4587",
         })
 
